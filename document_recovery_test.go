@@ -11,6 +11,21 @@ import (
 	"testing"
 )
 
+// recoveryDocs keeps the automatic restore from racing the explicit restores below.
+func recoveryDocs(t *testing.T) *Documents[string] {
+	t.Helper()
+	docRegistry.Lock()
+	launched := docRegistry.launched
+	docRegistry.launched = false
+	docRegistry.Unlock()
+	defer func() {
+		docRegistry.Lock()
+		docRegistry.launched = launched
+		docRegistry.Unlock()
+	}()
+	return testDocs(t, DocumentsOptions[string]{Autosave: AutosaveOff})
+}
+
 func writeRecoveryOrphan(t *testing.T, ds *Documents[string], name string, entries []recoveryEntry, copies map[string]string) string {
 	t.Helper()
 	root, err := ds.kind.recovery.root()
@@ -38,7 +53,7 @@ func writeRecoveryOrphan(t *testing.T, ds *Documents[string], name string, entri
 }
 
 func TestDocumentRecoveryKeepsSkippedCopy(t *testing.T) {
-	ds := testDocs(t, DocumentsOptions[string]{Autosave: AutosaveOff})
+	ds := recoveryDocs(t)
 	path := writeTemp(t, "already-open.txt", "on disk")
 	if _, err := ds.Open(path); err != nil {
 		t.Fatal(err)
@@ -58,7 +73,7 @@ func TestDocumentRecoveryKeepsSkippedCopy(t *testing.T) {
 }
 
 func TestDocumentRecoveryKeepsCopyWhenBackupFails(t *testing.T) {
-	ds := testDocs(t, DocumentsOptions[string]{Autosave: AutosaveOff})
+	ds := recoveryDocs(t)
 	dir := writeRecoveryOrphan(t, ds, "backup-fails", []recoveryEntry{{ID: "unsaved", Name: "Untitled"}}, map[string]string{"unsaved": "unsaved changes"})
 	create := ds.kind.create
 	blocked := writeTemp(t, "user-data-is-a-file", "not a directory")
@@ -77,7 +92,7 @@ func TestDocumentRecoveryKeepsCopyWhenBackupFails(t *testing.T) {
 }
 
 func TestDocumentRecoveryCleansOnlyRestoredEntries(t *testing.T) {
-	ds := testDocs(t, DocumentsOptions[string]{Autosave: AutosaveOff})
+	ds := recoveryDocs(t)
 	entries := []recoveryEntry{{ID: "good", Name: "Good"}, {ID: "bad", Name: "Bad"}}
 	dir := writeRecoveryOrphan(t, ds, "partial", entries, map[string]string{"good": "good content", "bad": "bad content"})
 	read := ds.kind.read
